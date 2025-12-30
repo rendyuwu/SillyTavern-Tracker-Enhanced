@@ -439,24 +439,39 @@ async function sendGenerateTrackerRequest(systemPrompt, requestPrompt, responseL
 	if (ctx.getWorldInfoPrompt) {
 		try {
 			// getWorldInfoPrompt requires chat messages for keyword scanning
-			const chatMessages = chat.map(m => m.mes).join('\n');
-			worldInfoContent = await ctx.getWorldInfoPrompt(chatMessages);
+			// We need to format it as the actual chat history string for regex matching
+			const chatMessages = chat.map(m => {
+				const name = m.name;
+				const message = m.mes;
+				return `${name}: ${message}`;
+			}).join('\n');
+			
+			const worldInfoResult = await ctx.getWorldInfoPrompt(chatMessages);
 			
 			// Debug logging for World Info return value
-			log(`[Tracker Enhanced] 🌍 getWorldInfoPrompt returned type: ${typeof worldInfoContent}`);
-			if (typeof worldInfoContent === 'object') {
-				log(`[Tracker Enhanced] 🌍 World Info content structure:`, worldInfoContent);
-			}
-
-			// Ensure worldInfoContent is a string
-			if (worldInfoContent && typeof worldInfoContent !== 'string') {
-				worldInfoContent = String(worldInfoContent);
+			log(`[Tracker Enhanced] 🌍 getWorldInfoPrompt returned type: ${typeof worldInfoResult}`);
+			
+			if (worldInfoResult && typeof worldInfoResult === 'object') {
+				// Handle object return (SillyTavern > 1.12)
+				// It returns { worldInfoString, worldInfoBefore, worldInfoAfter, ... }
+				worldInfoContent = worldInfoResult.worldInfoString || '';
+				
+				// Also append before/after content if available
+				if (worldInfoResult.worldInfoBefore) worldInfoContent = worldInfoResult.worldInfoBefore + '\n' + worldInfoContent;
+				if (worldInfoResult.worldInfoAfter) worldInfoContent = worldInfoContent + '\n' + worldInfoResult.worldInfoAfter;
+				
+				log(`[Tracker Enhanced] 🌍 Extracted World Info string length: ${worldInfoContent.length}`);
+			} else if (typeof worldInfoResult === 'string') {
+				// Handle legacy string return
+				worldInfoContent = worldInfoResult;
+			} else {
+				worldInfoContent = String(worldInfoResult || '');
 			}
 
 			if (worldInfoContent && worldInfoContent.trim()) {
 				log(`[Tracker Enhanced] 🌍 World Info loaded (${worldInfoContent.length} chars)`);
 			} else {
-				log(`[Tracker Enhanced] ℹ️ No active World Info entries found`);
+				log(`[Tracker Enhanced] ℹ️ No active World Info entries found (content empty)`);
 			}
 		} catch (err) {
 			warn(`[Tracker Enhanced] ⚠️ Failed to fetch World Info, continuing without it:`, err.message);
