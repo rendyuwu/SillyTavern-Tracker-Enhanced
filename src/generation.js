@@ -441,6 +441,18 @@ async function sendGenerateTrackerRequest(systemPrompt, requestPrompt, responseL
 			// getWorldInfoPrompt requires chat messages for keyword scanning
 			const chatMessages = chat.map(m => m.mes).join('\n');
 			worldInfoContent = await ctx.getWorldInfoPrompt(chatMessages);
+			
+			// Debug logging for World Info return value
+			log(`[Tracker Enhanced] 🌍 getWorldInfoPrompt returned type: ${typeof worldInfoContent}`);
+			if (typeof worldInfoContent === 'object') {
+				log(`[Tracker Enhanced] 🌍 World Info content structure:`, worldInfoContent);
+			}
+
+			// Ensure worldInfoContent is a string
+			if (worldInfoContent && typeof worldInfoContent !== 'string') {
+				worldInfoContent = String(worldInfoContent);
+			}
+
 			if (worldInfoContent && worldInfoContent.trim()) {
 				log(`[Tracker Enhanced] 🌍 World Info loaded (${worldInfoContent.length} chars)`);
 			} else {
@@ -449,6 +461,7 @@ async function sendGenerateTrackerRequest(systemPrompt, requestPrompt, responseL
 		} catch (err) {
 			warn(`[Tracker Enhanced] ⚠️ Failed to fetch World Info, continuing without it:`, err.message);
 			// Continue without World Info - tracker will still work
+			worldInfoContent = '';
 		}
 	} else {
 		log(`[Tracker Enhanced] ℹ️ getWorldInfoPrompt not available`);
@@ -456,7 +469,7 @@ async function sendGenerateTrackerRequest(systemPrompt, requestPrompt, responseL
 	
 	// Add World Info to system prompt if available
 	let enhancedSystemPrompt = systemPrompt;
-	if (worldInfoContent && worldInfoContent.trim()) {
+	if (worldInfoContent && typeof worldInfoContent === 'string' && worldInfoContent.trim()) {
 		enhancedSystemPrompt = systemPrompt + '\n\n<!-- World Info/Lorebook Context -->\n' + worldInfoContent + '\n<!-- End World Info -->';
 		log(`[Tracker Enhanced] 📚 Enhanced system prompt with World Info`);
 	}
