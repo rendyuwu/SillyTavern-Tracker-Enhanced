@@ -424,62 +424,46 @@ async function generateSingleStageTracker(mesNum, includedFields) {
 
 /**
  * Sends the generation request to the AI model and parses the tracker response.
- * Uses generateQuietPrompt to include World Info/Lorebook context.
+ * Fetches World Info/Lorebook and includes it in the prompt.
  * @param {string} systemPrompt
  * @param {string} requestPrompt
  * @param {number|null} responseLength
  */
 async function sendGenerateTrackerRequest(systemPrompt, requestPrompt, responseLength) {
-	log(`[Tracker Enhanced] 📤 Sending tracker generation request with World Info context`);
+	log(`[Tracker Enhanced] 📤 Sending tracker generation request`);
 	
 	const ctx = getContext();
 	
-	// Primary method: Use generateQuietPrompt which includes World Info
-	if (ctx.generateQuietPrompt) {
-		log(`[Tracker Enhanced] 🌍 Using generateQuietPrompt (includes World Info/Lorebook)`);
-		
+	// Fetch World Info/Lorebook entries and add to system prompt
+	let worldInfoContent = '';
+	if (ctx.getWorldInfoPrompt) {
 		try {
-			// Combine system prompt and request prompt for quiet generation
-			const fullPrompt = systemPrompt + '\n\n' + requestPrompt;
-			
-			let tracker = await ctx.generateQuietPrompt({
-				quietPrompt: fullPrompt,
-				maxTokens: responseLength || undefined,
-			});
-			
-			log(`[Tracker Enhanced] 📥 generateQuietPrompt response length: ${tracker?.length || 0}`);
-			log("Generated tracker (with World Info):", { tracker });
-
-			let newTracker;
-			try {
-				if(extensionSettings.trackerFormat == trackerFormat.JSON) tracker = unescapeJsonString(tracker);
-				const trackerContent = tracker.match(/<(?:tracker|Tracker)>([\s\S]*?)<\/(?:tracker|Tracker)>/);
-				let result = trackerContent ? trackerContent[1].trim() : null;
-				if(extensionSettings.trackerFormat == trackerFormat.YAML) result = yamlToJSON(result);
-				newTracker = JSON.parse(result);
-				log(`[Tracker Enhanced] ✅ Successfully parsed tracker response with World Info context`);
-			} catch (e) {
-				error(`[Tracker Enhanced] ❌ Failed to parse tracker from generateQuietPrompt:`, tracker, e);
-				toastr.error("Failed to parse the generated tracker. Make sure your token count is not low or set the response length override.");
-				return null;
+			worldInfoContent = await ctx.getWorldInfoPrompt();
+			if (worldInfoContent && worldInfoContent.trim()) {
+				log(`[Tracker Enhanced] 🌍 World Info loaded (${worldInfoContent.length} chars)`);
+			} else {
+				log(`[Tracker Enhanced] ℹ️ No active World Info entries found`);
 			}
-
-			log("Parsed tracker (with World Info):", { newTracker });
-			return newTracker;
-			
 		} catch (err) {
-			error(`[Tracker Enhanced] ❌ generateQuietPrompt failed:`, err);
-			log(`[Tracker Enhanced] 🔄 Falling back to generateRaw...`);
+			warn(`[Tracker Enhanced] ⚠️ Failed to fetch World Info:`, err);
 		}
 	} else {
-		log(`[Tracker Enhanced] ⚠️ generateQuietPrompt not available, using generateRaw`);
+		log(`[Tracker Enhanced] ℹ️ getWorldInfoPrompt not available`);
 	}
 	
-	// Fallback: Use generateRaw (no World Info context)
-	log(`[Tracker Enhanced] 🔄 Using fallback: generateRaw (no World Info)`);
+	// Add World Info to system prompt if available
+	let enhancedSystemPrompt = systemPrompt;
+	if (worldInfoContent && worldInfoContent.trim()) {
+		enhancedSystemPrompt = systemPrompt + '\n\n<!-- World Info/Lorebook Context -->\n' + worldInfoContent + '\n<!-- End World Info -->';
+		log(`[Tracker Enhanced] 📚 Enhanced system prompt with World Info`);
+	}
+	
+	// Primary method: Use independent connection
+	log(`[Tracker Enhanced] 🔧 Sending via independent connection...`);
+	
 	try {
-		let tracker = await generateRaw(systemPrompt + '\n\n' + requestPrompt, null, false, false, '', responseLength);
-		log("Generated tracker (fallback, no World Info):", { tracker });
+		let tracker = await sendIndependentGenerationRequest(enhancedSystemPrompt + '\n\n' + requestPrompt, responseLength);
+		log("Generated tracker:", { tracker });
 
 		let newTracker;
 		try {
@@ -488,19 +472,46 @@ async function sendGenerateTrackerRequest(systemPrompt, requestPrompt, responseL
 			let result = trackerContent ? trackerContent[1].trim() : null;
 			if(extensionSettings.trackerFormat == trackerFormat.YAML) result = yamlToJSON(result);
 			newTracker = JSON.parse(result);
-			log(`[Tracker Enhanced] ✅ Successfully parsed tracker response from fallback method`);
+			log(`[Tracker Enhanced] ✅ Successfully parsed tracker response`);
 		} catch (e) {
-			error(`[Tracker Enhanced] ❌ Failed to parse tracker from fallback method:`, tracker, e);
+			error(`[Tracker Enhanced] ❌ Failed to parse tracker:`, tracker, e);
 			toastr.error("Failed to parse the generated tracker. Make sure your token count is not low or set the response length override.");
 			return null;
 		}
 
-		log("Parsed tracker (fallback):", { newTracker });
+		log("Parsed tracker:", { newTracker });
 		return newTracker;
+		
 	} catch (err) {
-		error(`[Tracker Enhanced] ❌ All generation methods failed:`, err);
-		toastr.error("Failed to generate tracker. Please check your API connection.");
-		return null;
+		error(`[Tracker Enhanced] ❌ Independent connection failed, using fallback:`, err);
+		
+		// Fallback to generateRaw
+		log(`[Tracker Enhanced] 🔄 Using fallback: generateRaw`);
+		try {
+			let tracker = await generateRaw(enhancedSystemPrompt + '\n\n' + requestPrompt, null, false, false, '', responseLength);
+			log("Generated tracker (fallback):", { tracker });
+
+			let newTracker;
+			try {
+				if(extensionSettings.trackerFormat == trackerFormat.JSON) tracker = unescapeJsonString(tracker);
+				const trackerContent = tracker.match(/<(?:tracker|Tracker)>([\s\S]*?)<\/(?:tracker|Tracker)>/);
+				let result = trackerContent ? trackerContent[1].trim() : null;
+				if(extensionSettings.trackerFormat == trackerFormat.YAML) result = yamlToJSON(result);
+				newTracker = JSON.parse(result);
+				log(`[Tracker Enhanced] ✅ Successfully parsed tracker response from fallback`);
+			} catch (e) {
+				error(`[Tracker Enhanced] ❌ Failed to parse tracker from fallback:`, tracker, e);
+				toastr.error("Failed to parse the generated tracker. Make sure your token count is not low or set the response length override.");
+				return null;
+			}
+
+			log("Parsed tracker (fallback):", { newTracker });
+			return newTracker;
+		} catch (err2) {
+			error(`[Tracker Enhanced] ❌ All generation methods failed:`, err2);
+			toastr.error("Failed to generate tracker. Please check your API connection.");
+			return null;
+		}
 	}
 }
 
