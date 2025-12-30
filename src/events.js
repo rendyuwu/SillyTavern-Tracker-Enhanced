@@ -2,7 +2,7 @@ import { chat } from "../../../../../script.js";
 import { selected_group, is_group_generating } from "../../../../../scripts/group-chats.js";
 import { debug, getLastMessageWithTracker, getLastNonSystemMessageIndex, log } from "../lib/utils.js";
 import { isEnabled } from "./settings/settings.js";
-import { prepareMessageGeneration, addTrackerToMessage, clearInjects } from "./tracker.js";
+import { clearInjects, injectExistingTracker, generateAndSaveTrackerForMessage } from "./tracker.js";
 import { releaseGeneration } from "../lib/interconnection.js";
 import { FIELD_INCLUDE_OPTIONS, getTracker, OUTPUT_FORMATS, saveTracker } from "./trackerDataHandler.js";
 import { TrackerInterface } from "./ui/trackerInterface.js";
@@ -45,10 +45,11 @@ async function onGenerateAfterCommands(type, options, dryRun) {
 		return;
 	}
 
-	if(type == "normal") type = undefined;
-	log("GENERATION_AFTER_COMMANDS ", [type, options, dryRun]);
+	// Non-blocking: Only inject existing tracker from previous message
+	// Tracker generation will happen AFTER AI response in onCharacterMessageRendered
+	log("GENERATION_AFTER_COMMANDS - injecting existing tracker (non-blocking)", { type, options });
 	try {
-		await prepareMessageGeneration(type, options, dryRun);
+		await injectExistingTracker();
 	} finally {
 		releaseGeneration();
 	}
@@ -61,7 +62,7 @@ async function onGenerateAfterCommands(type, options, dryRun) {
 async function onMessageReceived(mesId) {
 	if (!await isEnabled() || !chat[mesId] || (chat[mesId].tracker && Object.keys(chat[mesId].tracker).length !== 0)) return;
 	log("MESSAGE_RECEIVED", mesId);
-	await addTrackerToMessage(mesId);
+	await generateAndSaveTrackerForMessage(mesId);
 	releaseGeneration();
 }
 
@@ -72,28 +73,31 @@ async function onMessageReceived(mesId) {
 async function onMessageSent(mesId) {
 	if (!await isEnabled() || !chat[mesId] || (chat[mesId].tracker && Object.keys(chat[mesId].tracker).length !== 0)) return;
 	log("MESSAGE_SENT", mesId);
-	await addTrackerToMessage(mesId);
+	await generateAndSaveTrackerForMessage(mesId);
 	releaseGeneration();
 }
 
 /**
  * Event handler for when a character's message is rendered.
+ * This is triggered AFTER user receives AI response - perfect time to generate tracker.
  */
 async function onCharacterMessageRendered(mesId) {
 	if (!await isEnabled() || !chat[mesId] || (chat[mesId].tracker && Object.keys(chat[mesId].tracker).length !== 0)) return;
-	log("CHARACTER_MESSAGE_RENDERED");
-	await addTrackerToMessage(mesId);
+	log("CHARACTER_MESSAGE_RENDERED - generating tracker with latest AI message", mesId);
+	// Generate tracker AFTER AI response, including the latest message
+	await generateAndSaveTrackerForMessage(mesId);
 	releaseGeneration();
 	updateTrackerInterface();
 }
 
 /**
  * Event handler for when a user's message is rendered.
+ * Generate tracker including this user message.
  */
 async function onUserMessageRendered(mesId) {
 	if (!await isEnabled() || !chat[mesId] || (chat[mesId].tracker && Object.keys(chat[mesId].tracker).length !== 0)) return;
-	log("USER_MESSAGE_RENDERED");
-	await addTrackerToMessage(mesId);
+	log("USER_MESSAGE_RENDERED - generating tracker with latest user message", mesId);
+	await generateAndSaveTrackerForMessage(mesId);
 	releaseGeneration();
 	updateTrackerInterface();
 }

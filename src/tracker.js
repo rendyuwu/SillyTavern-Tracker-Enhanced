@@ -97,6 +97,65 @@ export async function clearInjects() {
 	await injectTracker("", 0);
 }
 
+/**
+ * Injects existing tracker from the last message that has one.
+ * Used before sending chat request - does NOT generate new tracker.
+ */
+export async function injectExistingTracker() {
+	const lastMesWithTrackerIndex = getLastMessageWithTracker();
+	
+	if (lastMesWithTrackerIndex !== null) {
+		const tracker = chat[lastMesWithTrackerIndex].tracker;
+		if (extensionSettings.trackerInjectionEnabled !== false) {
+			log("[Tracker Enhanced] 📋 Injecting existing tracker from message", lastMesWithTrackerIndex);
+			await injectTracker(tracker, 0);
+		} else {
+			await injectTracker("", 0);
+		}
+	} else {
+		log("[Tracker Enhanced] 📋 No existing tracker found, injecting empty");
+		await injectTracker("", 0);
+	}
+}
+
+/**
+ * Generates and saves tracker for a message AFTER AI response is received.
+ * This includes the latest AI message in the tracker context.
+ * @param {number} mesId - The message ID to generate tracker for.
+ */
+export async function generateAndSaveTrackerForMessage(mesId) {
+	if (isSystemMessage(mesId)) {
+		debug("Skipping tracker generation for system message:", mesId);
+		return;
+	}
+	
+	if (!shouldGenerateTracker(mesId, undefined)) {
+		debug("Tracker generation not needed for message:", mesId);
+		return;
+	}
+	
+	log("[Tracker Enhanced] 🎯 Generating tracker for message", mesId, "(includes latest AI response)");
+	
+	try {
+		// Generate tracker WITH mesId included (this is the AI's latest response)
+		const tracker = await generateTracker(mesId);
+		
+		if (tracker) {
+			chat[mesId].tracker = tracker;
+			if (typeof chat_metadata.tracker !== "undefined") {
+				chat_metadata.tracker.tempTrackerId = null;
+				chat_metadata.tracker.tempTracker = null;
+				chat_metadata.tracker.cmdTrackerOverride = null;
+			}
+			await saveChatConditional();
+			TrackerPreviewManager.updatePreview(mesId);
+			log("[Tracker Enhanced] ✅ Tracker saved for message", mesId);
+		}
+	} catch (e) {
+		warn("[Tracker Enhanced] ❌ Failed to generate tracker for message", mesId, e);
+	}
+}
+
 
 
 
