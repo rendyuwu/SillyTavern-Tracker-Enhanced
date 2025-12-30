@@ -438,14 +438,17 @@ async function sendGenerateTrackerRequest(systemPrompt, requestPrompt, responseL
 	let worldInfoContent = '';
 	if (ctx.getWorldInfoPrompt) {
 		try {
-			worldInfoContent = await ctx.getWorldInfoPrompt();
+			// getWorldInfoPrompt requires chat messages for keyword scanning
+			const chatMessages = chat.map(m => m.mes).join('\n');
+			worldInfoContent = await ctx.getWorldInfoPrompt(chatMessages);
 			if (worldInfoContent && worldInfoContent.trim()) {
 				log(`[Tracker Enhanced] 🌍 World Info loaded (${worldInfoContent.length} chars)`);
 			} else {
 				log(`[Tracker Enhanced] ℹ️ No active World Info entries found`);
 			}
 		} catch (err) {
-			warn(`[Tracker Enhanced] ⚠️ Failed to fetch World Info:`, err);
+			warn(`[Tracker Enhanced] ⚠️ Failed to fetch World Info, continuing without it:`, err.message);
+			// Continue without World Info - tracker will still work
 		}
 	} else {
 		log(`[Tracker Enhanced] ℹ️ getWorldInfoPrompt not available`);
